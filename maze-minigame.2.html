@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Escape the Maze</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+  html, body {
+    width: 100%; height: 100%;
+    background: #060912;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-user-select: none;
+    user-select: none;
+    touch-action: manipulation;
+  }
+
+  canvas#bg { position: fixed; inset: 0; pointer-events: none; z-index: 0; }
+
+  .orb { position: fixed; border-radius: 50%; filter: blur(110px); pointer-events: none; z-index: 1; animation: drift 18s ease-in-out infinite alternate; }
+  .o1 { width: 520px; height: 520px; background: radial-gradient(circle, #ff6a00, transparent 65%); top: -150px; left: -130px; opacity: .22; }
+  .o2 { width: 440px; height: 440px; background: radial-gradient(circle, #008ac4, transparent 65%); bottom: -110px; right: -110px; opacity: .24; animation-delay: -8s; }
+  .o3 { width: 300px; height: 300px; background: radial-gradient(circle, #7a3cff, transparent 65%); top: 40%; right: 4%; opacity: .16; animation-delay: -13s; }
+  @keyframes drift { from { transform: translate(0,0) scale(1); } to { transform: translate(40px,30px) scale(1.08); } }
+
+  .card {
+    position: relative; z-index: 10;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.11);
+    -webkit-backdrop-filter: blur(24px);
+    backdrop-filter: blur(24px);
+    border-radius: 0;
+    box-shadow: 0 32px 100px rgba(0,0,0,0.65), inset 0 1px 0 rgba(255,255,255,0.08);
+    overflow: hidden;
+    padding: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .stageWrap {
+    position: relative;
+    width: min(100%, calc((100vh - 24px) * 1.2352941176));
+    aspect-ratio: 672 / 544;
+    max-height: calc(100vh - 24px);
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.08), inset 0 20px 50px rgba(0,0,0,.55);
+    background: #0b0e18;
+  }
+  canvas#scene { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+  .overlay {
+    position: absolute; inset: 0; z-index: 5;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 10px; text-align: center; padding: 20px;
+    background: rgba(4,6,14,.68);
+    opacity: 0; pointer-events: none;
+    transition: opacity .35s ease;
+  }
+  .overlay.show { opacity: 1; pointer-events: auto; }
+  .overlay h2 { font-size: 22px; color: #f2f5ff; letter-spacing: .02em; }
+  .overlay p { font-size: 13.5px; color: rgba(220,225,245,.72); max-width: 380px; line-height: 1.5; }
+  .badge { font-size: 34px; }
+
+  .dpad {
+    position: fixed; z-index: 30;
+    right: 14px; bottom: 14px;
+    width: 132px; height: 132px;
+    display: grid;
+    grid-template-columns: 42px 42px 42px;
+    grid-template-rows: 42px 42px 42px;
+    gap: 4px;
+    opacity: .82;
+  }
+  .dpad button {
+    grid-row: auto; grid-column: auto;
+    border: 1px solid rgba(255,255,255,.16);
+    background: rgba(255,255,255,.07);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    border-radius: 10px;
+    color: #eaf0ff;
+    font-size: 16px;
+    display: flex; align-items: center; justify-content: center;
+    touch-action: none;
+    cursor: pointer;
+  }
+  .dpad button:active, .dpad button.active { background: rgba(120,170,255,.35); border-color: rgba(160,200,255,.5); }
+  .dpad .up { grid-column: 2; grid-row: 1; }
+  .dpad .left { grid-column: 1; grid-row: 2; }
+  .dpad .right { grid-column: 3; grid-row: 2; }
+  .dpad .down { grid-column: 2; grid-row: 3; }
+
+  .hint { position: fixed; left: 14px; bottom: 14px; z-index: 30; font-size: 11.5px; color: rgba(210,220,255,.5); letter-spacing: .03em; background: rgba(0,0,0,.28); padding: 6px 10px; border-radius: 8px; -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
+
+  @media (max-width: 520px), (max-height: 480px) {
+    .dpad {
+      width: 108px;
+      height: 108px;
+      grid-template-columns: 34px 34px 34px;
+      grid-template-rows: 34px 34px 34px;
+      gap: 3px;
+      right: 8px;
+      bottom: 8px;
+    }
+    .hint {
+      left: 8px;
+      bottom: 8px;
+      font-size: 10px;
+      padding: 5px 8px;
+    }
+  }
+</style>
+</head>
+
+<body>
+
+<canvas id="bg"></canvas>
+<div class="orb o1"></div>
+<div class="orb o2"></div>
+<div class="orb o3"></div>
+
+<div class="card">
+  <div class="stageWrap" id="stageWrap">
+    <canvas id="scene"></canvas>
+
+    <div class="overlay show" id="ovIdle">
+      <div class="badge">🕯️</div>
+      <h2>Escape the Maze</h2>
+      <p>When it's your turn to answer, a torch will light your way. Find the exit.</p>
+    </div>
+
+    <div class="overlay" id="ovWon">
+      <div class="badge">🏆</div>
+      <h2>You found the way out!</h2>
+    </div>
+
+    <div class="overlay" id="ovStopped">
+      <div class="badge">⏹️</div>
+      <h2>Answer time is over</h2>
+      <p>The result will be decided at the table.</p>
+    </div>
+
+    <div class="hint" id="hint">arrows / WASD to move</div>
+
+    <div class="dpad" id="dpad">
+      <button class="up" data-dir="up">▲</button>
+      <button class="left" data-dir="left">◀</button>
+      <button class="right" data-dir="right">▶</button>
+      <button class="down" data-dir="down">▼</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ───────────────────────── Background twinkle (decorative) ───────────────────────── */
+(function () {
+  const c = document.getElementById('bg'), ctx = c.getContext('2d');
+  let W, H, s = [];
+  const rsz = () => { W = c.width = innerWidth; H = c.height = innerHeight; };
+  const mk = () => { s = []; for (let i = 0; i < 160; i++) s.push({ x: Math.random() * W, y: Math.random() * H, r: Math.random() * 1.1 + .15, a: Math.random(), da: (.003 + Math.random() * .005) * (Math.random() < .5 ? 1 : -1) }); };
+  const dr = () => { ctx.clearRect(0, 0, W, H); for (const t of s) { t.a = Math.max(.04, Math.min(.9, t.a + t.da)); if (t.a <= .04 || t.a >= .9) t.da *= -1; ctx.beginPath(); ctx.arc(t.x, t.y, t.r, 0, Math.PI * 2); ctx.fillStyle = `rgba(255,214,170,${t.a * .8})`; ctx.fill(); } requestAnimationFrame(dr); };
+  window.addEventListener('resize', () => { rsz(); mk(); }); rsz(); mk(); dr();
+})();
+
+/* ───────────────────────── Maze data (fixed / hardcoded layout) ─────────────────────────
+   Generated once offline as a "perfect" maze (recursive backtracker, no braid loops),
+   so there is exactly one route between start and exit — no shortcuts — then two small
+   dead-end rooms were carved off leaf branches (verified to not shorten the solution).
+   Frozen here as a constant so every player faces the same maze.
+   '#' = wall, '.' = floor, 'S' = start, 'E' = exit.
+   Grid is 21 x 17 cells; shortest path S→E is 52 cells.
+*/
+const MAZE_ROWS = [
+  "#####################",
+  "#S#.....#...#.......#",
+  "#.###.###.#.#.##....#",
+  "#...#...#.#.#.#.....#",
+  "###.#.#.#.#.#.#.....#",
+  "#.#.#.#...#.#.#.#...#",
+  "#.#.#.#####.#.#.#.###",
+  "#.#.#.#.....#.#.#...#",
+  "#.#.###.#####.#.###.#",
+  "#.#.#...#...#.#.#...#",
+  "#.#.#.###.#.#.#.#.#.#",
+  "#...#.#...#.....#.#.#",
+  "#.###.#....####.#.#.#",
+  "#.#...........#.#.#.#",
+  "#.######....#.###.#.#",
+  "#...........#.....#E#",
+  "#####################"
+];
+
+const COLS = MAZE_ROWS[0].length;
+const ROWS = MAZE_ROWS.length;
+const CELL = 32;               // px per cell at native resolution
+const BASE_W = COLS * CELL;    // 608
+const BASE_H = ROWS * CELL;    // 480
+
+const wall = []; // wall[y][x] === true means solid
+let startCell = null, exitCell = null;
+for (let y = 0; y < ROWS; y++) {
+  wall.push([]);
+  for (let x = 0; x < COLS; x++) {
+    const ch = MAZE_ROWS[y][x];
+    wall[y].push(ch === '#');
+    if (ch === 'S') startCell = { x, y };
+    if (ch === 'E') exitCell = { x, y };
+  }
+}
+function isWallCell(cx, cy) {
+  if (cx < 0 || cy < 0 || cx >= COLS || cy >= ROWS) return true;
+  return wall[cy][cx];
+}
+
+/* ───────────────────────── Canvas setup (hi-DPI, responsive) ───────────────────────── */
+const stageWrap = document.getElementById('stageWrap');
+const sc = document.getElementById('scene');
+const ctx = sc.getContext('2d');
+
+function fitCanvas() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  sc.width = BASE_W * dpr;
+  sc.height = BASE_H * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+fitCanvas();
+window.addEventListener('resize', fitCanvas);
+
+/* ───────────────────────── Audio (synth only, no embedded files needed) ───────────────────────── */
+let actx = null, masterGain = null;
+let volume = 1;
+function ensureAudio() {
+  if (actx) return;
+  try {
+    actx = new (window.AudioContext || window.webkitAudioContext)();
+    masterGain = actx.createGain();
+    masterGain.gain.value = volume;
+    masterGain.connect(actx.destination);
+  } catch (e) { /* audio unavailable, game still works */ }
+}
+function setVolume(v) {
+  if (v == null || isNaN(v)) return;
+  volume = v > 1 ? v / 100 : v;
+  volume = Math.max(0, Math.min(1, volume));
+  if (masterGain) masterGain.gain.value = volume;
+}
+function beep(freq, dur, type, startOffset, gainMul) {
+  if (!actx || !masterGain) return;
+  const o = actx.createOscillator();
+  const g = actx.createGain();
+  o.type = type || 'sine';
+  o.frequency.value = freq;
+  const t0 = actx.currentTime + (startOffset || 0);
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime((gainMul != null ? gainMul : 0.18), t0 + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  o.connect(g); g.connect(masterGain);
+  o.start(t0); o.stop(t0 + dur + 0.05);
+}
+function sfxStep() { beep(120 + Math.random() * 30, 0.05, 'triangle', 0, 0.05); }
+function sfxWin() { [523, 659, 784, 1046].forEach((f, i) => beep(f, 0.4, 'sine', i * 0.11, 0.15)); }
+
+/* ───────────────────────── Game state ───────────────────────── */
+const PLAYER_R = 8;
+const VIEW_RADIUS = 3.6;    // cells of line-of-sight
+const STEP_MS = 160;        // duration of one cell-to-cell move animation
+
+let state = 'idle';         // idle | playing | paused | won | stopped
+
+// Player position is always cell-aligned: (cx,cy) is the logical cell, and the
+// rendered (x,y) either sits at that cell's center (idle) or animates linearly
+// toward an adjacent cell while a move is in progress. One key press/hold tick
+// = exactly one cell change.
+let player = {
+  cx: startCell.x, cy: startCell.y,
+  x: (startCell.x + 0.5) * CELL, y: (startCell.y + 0.5) * CELL,
+  animating: false,
+  fromX: 0, fromY: 0, toX: 0, toY: 0, animStart: 0,
+};
+let discovered = new Set();
+let visibleNow = new Set();
+let move = { up: false, down: false, left: false, right: false };
+
+function cellKey(x, y) { return x + ',' + y; }
+
+/* line-of-sight check: sample along the segment between cell centers, blocked by any
+   wall cell crossed en route. The destination cell itself is excluded from the check —
+   otherwise a wall target would always "block itself" and never be revealed. */
+function hasLOS(ox, oy, tx, ty) {
+  const steps = Math.max(Math.abs(tx - ox), Math.abs(ty - oy)) * 6 + 1;
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const cx = Math.round(ox + (tx - ox) * t);
+    const cy = Math.round(oy + (ty - oy) * t);
+    if (cx === tx && cy === ty) continue;
+    if (isWallCell(cx, cy)) return false;
+  }
+  return true;
+}
+
+function updateVisibility(pcx, pcy) {
+  visibleNow = new Set();
+  const r = Math.ceil(VIEW_RADIUS);
+  for (let dy = -r; dy <= r; dy++) {
+    for (let dx = -r; dx <= r; dx++) {
+      const tx = pcx + dx, ty = pcy + dy;
+      if (tx < 0 || ty < 0 || tx >= COLS || ty >= ROWS) continue;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist > VIEW_RADIUS) continue;
+      if (isWallCell(tx, ty)) {
+        // reveal a wall only if an adjacent floor cell in LOS touches it (so walls around a lit room show up)
+        if (hasLOS(pcx, pcy, tx, ty)) { visibleNow.add(cellKey(tx, ty)); discovered.add(cellKey(tx, ty)); }
+        continue;
+      }
+      if (hasLOS(pcx, pcy, tx, ty)) {
+        visibleNow.add(cellKey(tx, ty));
+        discovered.add(cellKey(tx, ty));
+      }
+    }
+  }
+}
+
+/* ───────────────────────── Movement (grid-aligned, one cell per move) ───────────────────────── */
+function easeInOutQuad(t) { return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; }
+
+function tryStartMove(dx, dy) {
+  if (player.animating) return;
+  const tx = player.cx + dx, ty = player.cy + dy;
+  if (isWallCell(tx, ty)) return;
+  player.fromX = player.x; player.fromY = player.y;
+  player.toX = (tx + 0.5) * CELL; player.toY = (ty + 0.5) * CELL;
+  player.cx = tx; player.cy = ty;
+  player.animating = true;
+  player.animStart = performance.now();
+  sfxStep();
+}
+
+function stepPlayer(now) {
+  if (player.animating) {
+    const t = Math.min((now - player.animStart) / STEP_MS, 1);
+    const e = easeInOutQuad(t);
+    player.x = player.fromX + (player.toX - player.fromX) * e;
+    player.y = player.fromY + (player.toY - player.fromY) * e;
+    if (t >= 1) {
+      player.animating = false;
+      if (player.cx === exitCell.x && player.cy === exitCell.y) winGame();
+    }
+  } else {
+    let dx = 0, dy = 0;
+    if (move.up) dy = -1;
+    else if (move.down) dy = 1;
+    else if (move.left) dx = -1;
+    else if (move.right) dx = 1;
+    if (dx || dy) tryStartMove(dx, dy);
+  }
+
+  updateVisibility(player.cx, player.cy);
+}
+
+/* ───────────────────────── Rendering ───────────────────────── */
+function draw() {
+  ctx.clearRect(0, 0, BASE_W, BASE_H);
+  ctx.fillStyle = '#05060b';
+  ctx.fillRect(0, 0, BASE_W, BASE_H);
+
+  // Player-centric camera: keep player fixed at the center and move the world.
+  const camX = player.x - BASE_W / 2;
+  const camY = player.y - BASE_H / 2;
+
+  const pcx = Math.floor(player.x / CELL), pcy = Math.floor(player.y / CELL);
+
+  for (let y = 0; y < ROWS; y++) {
+    for (let x = 0; x < COLS; x++) {
+      const key = cellKey(x, y);
+      const seen = discovered.has(key);
+      if (!seen) continue;
+      const vis = visibleNow.has(key);
+      const isW = wall[y][x];
+      const px = x * CELL - camX, py = y * CELL - camY;
+
+      if (px > BASE_W || py > BASE_H || px + CELL < 0 || py + CELL < 0) continue;
+
+      if (isW) {
+        ctx.fillStyle = vis ? '#8a6a42' : '#2c2318';
+        ctx.fillRect(px, py, CELL, CELL);
+        ctx.strokeStyle = vis ? 'rgba(255,220,160,.28)' : 'rgba(255,210,150,.06)';
+        ctx.strokeRect(px + .5, py + .5, CELL - 1, CELL - 1);
+      } else {
+        ctx.fillStyle = vis ? '#141a2c' : '#0b0e18';
+        ctx.fillRect(px, py, CELL, CELL);
+        if (vis) {
+          ctx.fillStyle = 'rgba(255,255,255,.02)';
+          if ((x + y) % 2 === 0) ctx.fillRect(px, py, CELL, CELL);
+        }
+      }
+    }
+  }
+
+  // exit glow (only once discovered)
+  if (discovered.has(cellKey(exitCell.x, exitCell.y))) {
+    const ex = (exitCell.x + 0.5) * CELL - camX, ey = (exitCell.y + 0.5) * CELL - camY;
+    const visE = visibleNow.has(cellKey(exitCell.x, exitCell.y));
+    const g = ctx.createRadialGradient(ex, ey, 1, ex, ey, CELL * 1.6);
+    g.addColorStop(0, `rgba(120,255,190,${visE ? .55 : .18})`);
+    g.addColorStop(1, 'rgba(120,255,190,0)');
+    ctx.beginPath(); ctx.arc(ex, ey, CELL * 1.6, 0, Math.PI * 2); ctx.fillStyle = g; ctx.fill();
+    ctx.beginPath(); ctx.arc(ex, ey, 6, 0, Math.PI * 2);
+    ctx.fillStyle = visE ? 'rgba(170,255,215,.95)' : 'rgba(170,255,215,.4)';
+    ctx.fill();
+  }
+
+  // player torch glow + figure
+  const px = BASE_W / 2, py = BASE_H / 2;
+  const glow = ctx.createRadialGradient(px, py, 2, px, py, CELL * VIEW_RADIUS);
+  glow.addColorStop(0, 'rgba(255,196,120,.16)');
+  glow.addColorStop(1, 'rgba(255,196,120,0)');
+  ctx.beginPath(); ctx.arc(px, py, CELL * VIEW_RADIUS, 0, Math.PI * 2); ctx.fillStyle = glow; ctx.fill();
+
+  ctx.beginPath(); ctx.arc(px, py, PLAYER_R + 5, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255,205,140,.30)'; ctx.fill();
+  ctx.beginPath(); ctx.arc(px, py, PLAYER_R, 0, Math.PI * 2);
+  const pg = ctx.createRadialGradient(px - 2, py - 2, 1, px, py, PLAYER_R);
+  pg.addColorStop(0, '#fff3dc'); pg.addColorStop(1, '#ffb14d');
+  ctx.fillStyle = pg; ctx.fill();
+  ctx.lineWidth = 1.4; ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.stroke();
+}
+
+/* ───────────────────────── Overlays ───────────────────────── */
+const overlays = {
+  idle: document.getElementById('ovIdle'),
+  won: document.getElementById('ovWon'),
+  stopped: document.getElementById('ovStopped'),
+};
+function showOverlay(name) {
+  Object.values(overlays).forEach(el => el.classList.remove('show'));
+  if (name && overlays[name]) overlays[name].classList.add('show');
+}
+
+/* ───────────────────────── Host message protocol ───────────────────────── */
+function notifyHost(message) {
+  if (window.parent && window.parent !== window) {
+    window.parent.postMessage(message, '*');
+  }
+}
+
+let prePauseState = null;
+
+function startGame() {
+  if (state !== 'idle') return;
+  ensureAudio();
+  if (actx && actx.state === 'suspended') actx.resume();
+  state = 'playing';
+  showOverlay(null);
+  updateVisibility(player.cx, player.cy);
+}
+
+function pauseGame() {
+  if (state === 'playing') { prePauseState = 'playing'; state = 'paused'; }
+}
+function resumeGame() {
+  if (state === 'paused' && prePauseState === 'playing') { state = 'playing'; prePauseState = null; }
+}
+
+function winGame() {
+  if (state !== 'playing') return;
+  state = 'won';
+  showOverlay('won');
+  sfxWin();
+  // The engine already knows how to score a correct answer, so this is the
+  // only message we send on success — no follow-up 'completed' fallback.
+  notifyHost({ type: 'si:media-event', event: 'answer-right' });
+}
+
+function stopWithoutResult() {
+  // The engine interrupts the game itself (e.g. via 'answer-end') whenever it
+  // decides answering time is over. There is no internal timer or lose
+  // condition here — the maze just runs until interrupted.
+  if (state === 'won' || state === 'stopped') return;
+  state = 'stopped';
+  showOverlay('stopped');
+  notifyHost({ type: 'si:media-event', event: 'completed' });
+}
+
+window.addEventListener('message', (event) => {
+  const data = event.data;
+  if (!data || data.type !== 'si:media-control') return;
+
+  switch (data.action) {
+    case 'set-volume':
+      setVolume(data.value);
+      break;
+    case 'pause':
+      pauseGame();
+      break;
+    case 'play':
+      resumeGame();
+      break;
+    case 'answer':
+      startGame();
+      break;
+    case 'answer-end':
+      stopWithoutResult();
+      break;
+  }
+});
+
+/* ───────────────────────── Input ───────────────────────── */
+const KEY_MAP = {
+  ArrowUp: 'up', KeyW: 'up', Numpad8: 'up',
+  ArrowDown: 'down', KeyS: 'down', Numpad2: 'down',
+  ArrowLeft: 'left', KeyA: 'left', Numpad4: 'left',
+  ArrowRight: 'right', KeyD: 'right', Numpad6: 'right',
+};
+window.addEventListener('keydown', (e) => {
+  const dir = KEY_MAP[e.code];
+  if (!dir) return;
+  e.preventDefault();
+  move[dir] = true;
+  ensureAudio();
+});
+window.addEventListener('keyup', (e) => {
+  const dir = KEY_MAP[e.code];
+  if (!dir) return;
+  move[dir] = false;
+});
+
+document.querySelectorAll('#dpad button').forEach(btn => {
+  const dir = btn.getAttribute('data-dir');
+  const on = (e) => { e.preventDefault(); move[dir] = true; btn.classList.add('active'); ensureAudio(); };
+  const off = (e) => { if (e) e.preventDefault(); move[dir] = false; btn.classList.remove('active'); };
+  btn.addEventListener('pointerdown', on);
+  btn.addEventListener('pointerup', off);
+  btn.addEventListener('pointerleave', off);
+  btn.addEventListener('pointercancel', off);
+});
+
+/* ───────────────────────── Main loop ───────────────────────── */
+function tick(ts) {
+  if (state === 'playing') {
+    stepPlayer(ts);
+  }
+  draw();
+
+  requestAnimationFrame(tick);
+}
+
+// initial reveal so the room around the start is drawn once game begins; keep hidden while idle
+requestAnimationFrame(tick);
+notifyHost({ type: 'si:media-event', event: 'supports-set-volume' });
+</script>
+</body>
+</html>

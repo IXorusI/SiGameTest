@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Trivia Count</title>
+  <style>
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      background: #060912;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    canvas#bg {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .orb {
+      position: fixed;
+      border-radius: 50%;
+      filter: blur(110px);
+      pointer-events: none;
+      z-index: 1;
+      animation: drift 18s ease-in-out infinite alternate;
+    }
+
+    .o1 {
+      width: 560px;
+      height: 560px;
+      background: radial-gradient(circle, #3a0aff, transparent 65%);
+      top: -160px;
+      left: -140px;
+      opacity: .32;
+    }
+
+    .o2 {
+      width: 440px;
+      height: 440px;
+      background: radial-gradient(circle, #008ac4, transparent 65%);
+      bottom: -110px;
+      right: -110px;
+      opacity: .28;
+      animation-delay: -8s;
+    }
+
+    .o3 {
+      width: 300px;
+      height: 300px;
+      background: radial-gradient(circle, #c060ff, transparent 65%);
+      top: 38%;
+      right: 6%;
+      opacity: .15;
+      animation-delay: -13s;
+    }
+
+    @keyframes drift {
+      from {
+        transform: translate(0, 0)scale(1)
+      }
+
+      to {
+        transform: translate(40px, 30px)scale(1.08)
+      }
+    }
+
+    .card {
+      position: relative;
+      z-index: 10;
+      width: min(520px, 92vw);
+      height: min(520px, 92vw);
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.11);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border-radius: 32px;
+      box-shadow: 0 32px 100px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+      overflow: hidden;
+    }
+
+    .shine {
+      position: absolute;
+      inset: 0;
+      border-radius: 32px;
+      background: linear-gradient(135deg, rgba(255, 255, 255, 0.06) 0%, transparent 50%);
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    canvas#scene {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 2;
+    }
+  </style>
+</head>
+
+<body>
+
+  <canvas id="bg"></canvas>
+  <div class="orb o1"></div>
+  <div class="orb o2"></div>
+  <div class="orb o3"></div>
+
+  <div class="card" id="card">
+    <div class="shine"></div>
+    <canvas id="scene"></canvas>
+  </div>
+
+  <script>
+    /* ── Background twinkle ── */
+    (function () {
+      const c = document.getElementById('bg'), ctx = c.getContext('2d');
+      let W, H, s = [];
+      const rsz = () => { W = c.width = innerWidth; H = c.height = innerHeight; };
+      const mk = () => { s = []; for (let i = 0; i < 200; i++)s.push({ x: Math.random() * W, y: Math.random() * H, r: Math.random() * 1.1 + .15, a: Math.random(), da: (.003 + Math.random() * .005) * (Math.random() < .5 ? 1 : -1) }); };
+      const dr = () => { ctx.clearRect(0, 0, W, H); for (const t of s) { t.a = Math.max(.04, Math.min(.9, t.a + t.da)); if (t.a <= .04 || t.a >= .9) t.da *= -1; ctx.beginPath(); ctx.arc(t.x, t.y, t.r, 0, Math.PI * 2); ctx.fillStyle = `rgba(190,210,255,${t.a})`; ctx.fill(); } requestAnimationFrame(dr); };
+      window.addEventListener('resize', () => { rsz(); mk(); }); rsz(); mk(); dr();
+    })();
+
+    /* ── Scene ── */
+    const card = document.getElementById('card');
+    const sc = document.getElementById('scene');
+    const ctx = sc.getContext('2d');
+    let W, H;
+
+    function rsz() { const r = card.getBoundingClientRect(); W = sc.width = r.width; H = sc.height = r.height; }
+    rsz(); window.addEventListener('resize', rsz);
+
+    /* Easing */
+    function easeOutBack(t) { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); }
+    function easeInBack(t) { const c1 = 1.70158, c3 = c1 + 1; return c3 * t * t * t - c1 * t * t; }
+
+    /* ── UFO object factory ── */
+    function mkUFO(spawnAt) {
+      // enter from a random edge
+      const edge = Math.floor(Math.random() * 4); // 0=top 1=right 2=bottom 3=left
+      let sx, sy, ex, ey;
+      const m = 20;
+      const cx = m + Math.random() * (W - m * 2), cy = m + Math.random() * (H - m * 2);
+      if (edge === 0) { sx = cx; sy = -50; }
+      else if (edge === 1) { sx = W + 50; sy = cy; }
+      else if (edge === 2) { sx = cx; sy = H + 50; }
+      else { sx = -50; sy = cy; }
+
+      // exit toward opposite-ish direction with drift
+      const exitAngle = Math.atan2(sy - H / 2, sx - W / 2) + (Math.random() - .5) * 1.2;
+      const exitDist = Math.max(W, H) * .7;
+      ex = sx + Math.cos(exitAngle) * exitDist + (Math.random() - .5) * 200;
+      ey = sy + Math.sin(exitAngle) * exitDist + (Math.random() - .5) * 200;
+
+      const visibleDuration = 1400 + Math.random() * 900; // how long fully visible
+      const totalLife = 500 + visibleDuration + 500; // in + visible + out
+
+      return {
+        spawnAt,
+        totalLife,
+        visibleDuration,
+        sx, sy, ex, ey,
+        // midpoint wandering
+        mx: W * .2 + Math.random() * (W * .6),
+        my: H * .2 + Math.random() * (H * .6),
+        hue: 175 + Math.floor(Math.random() * 145),
+        wobOff: Math.random() * Math.PI * 2,
+        wobSpd: .5 + Math.random() * .55,
+        wobAmp: 3 + Math.random() * 5,
+        age: 0,
+        done: false,
+      };
+    }
+
+    /* ── Draw one UFO ── */
+    function drawUFO(x, y, scale, alpha, hue, ts, wo, ws, wa) {
+      if (alpha <= 0 || scale <= 0) return;
+      const wy = Math.sin(ts * ws * 0.001 + wo) * wa;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.translate(x, y + wy);
+
+      // outer glow
+      let g = ctx.createRadialGradient(0, 0, 2, 0, 0, 36 * scale);
+      g.addColorStop(0, `hsla(${hue},100%,78%,.38)`);
+      g.addColorStop(1, `hsla(${hue},100%,55%,0)`);
+      ctx.beginPath(); ctx.arc(0, 0, 36 * scale, 0, Math.PI * 2); ctx.fillStyle = g; ctx.fill();
+
+      // dome
+      ctx.beginPath(); ctx.ellipse(0, -5 * scale, 14 * scale, 10 * scale, 0, Math.PI, 0);
+      let dg = ctx.createRadialGradient(-4 * scale, -9 * scale, 1, 0, -4 * scale, 17 * scale);
+      dg.addColorStop(0, `hsla(${hue},80%,94%,.95)`);
+      dg.addColorStop(1, `hsla(${hue},70%,52%,.7)`);
+      ctx.fillStyle = dg; ctx.fill();
+      ctx.strokeStyle = `hsla(${hue},100%,90%,.4)`; ctx.lineWidth = 1 * scale; ctx.stroke();
+
+      // saucer body
+      ctx.beginPath(); ctx.ellipse(0, 0, 22 * scale, 7 * scale, 0, 0, Math.PI * 2);
+      let bg = ctx.createLinearGradient(0, -7 * scale, 0, 7 * scale);
+      bg.addColorStop(0, `hsla(${hue},65%,72%,.95)`);
+      bg.addColorStop(1, `hsla(${hue},65%,32%,.85)`);
+      ctx.fillStyle = bg; ctx.fill();
+      ctx.strokeStyle = `hsla(${hue},100%,82%,.3)`; ctx.lineWidth = .8 * scale; ctx.stroke();
+
+      // rim lights
+      [-50, -25, 0, 25, 50].forEach((deg, li) => {
+        const rad = deg * Math.PI / 180;
+        const lx = Math.sin(rad) * 18 * scale, ly = Math.cos(rad) * 3 * scale;
+        const pulse = (Math.sin(ts * .003 + li * 1.3 + wo) + 1) / 2;
+        ctx.beginPath(); ctx.arc(lx, ly, 1.8 * scale, 0, Math.PI * 2);
+        ctx.fillStyle = `hsla(${(hue + li * 28) % 360},100%,85%,${.4 + pulse * .6})`; ctx.fill();
+      });
+
+      // tractor beam
+      const ba = (.25 + Math.sin(ts * .004 + wo) * .1) * alpha;
+      let bm = ctx.createLinearGradient(0, 7 * scale, 0, 34 * scale);
+      bm.addColorStop(0, `hsla(${hue},100%,82%,${ba})`);
+      bm.addColorStop(1, `hsla(${hue},100%,82%,0)`);
+      ctx.beginPath(); ctx.moveTo(-8 * scale, 7 * scale); ctx.lineTo(8 * scale, 7 * scale); ctx.lineTo(14 * scale, 34 * scale); ctx.lineTo(-14 * scale, 34 * scale); ctx.closePath();
+      ctx.fillStyle = bm; ctx.fill();
+
+      ctx.restore();
+    }
+
+    /* ── Scheduler ── */
+    // Spawn timings: UFOs appear at irregular intervals so they overlap unpredictably
+    const COUNT = 7;
+    const spawns = [];
+    let t = 0;
+    for (let i = 0; i < COUNT; i++) {
+      spawns.push(t);
+      t += 600 + Math.random() * 700;
+    }
+    const SEQUENCE_END = t + 2400; // last UFO plus some tail time
+
+    let ufos = [];
+    let elapsed = 0, lastTs = null, raf = null;
+    let paused = false, stopped = false;
+    let nextSpawn = 0; // index into spawns[]
+    let completedNotified = false;
+
+    function notifyHost(message) {
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage(message, '*');
+      }
+    }
+
+    function init() {
+      ufos = [];
+      elapsed = 0;
+      lastTs = null;
+      paused = false;
+      stopped = false;
+      nextSpawn = 0;
+      completedNotified = false;
+    }
+
+    function tick(ts) {
+      if (lastTs === null) lastTs = ts;
+      const dt = ts - lastTs; lastTs = ts;
+
+      if (!paused && !stopped) elapsed += dt;
+
+      // Spawn new UFOs on schedule
+      while (nextSpawn < COUNT && elapsed >= spawns[nextSpawn]) {
+        ufos.push(mkUFO(spawns[nextSpawn]));
+        nextSpawn++;
+      }
+
+      ctx.clearRect(0, 0, W, H);
+
+      // vignette
+      let v = ctx.createRadialGradient(W / 2, H / 2, H * .15, W / 2, H / 2, H * .8);
+      v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,20,.5)');
+      ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
+
+      for (const u of ufos) {
+        if (stopped) { u.done = true; continue; } // hard stop: vanish all
+        if (!paused) u.age += dt;
+        const p = u.age / u.totalLife; // 0→1 over lifetime
+        if (p >= 1) { u.done = true; continue; }
+
+        const inDur = 500;
+        const outDur = 500;
+        const fullDur = u.totalLife;
+        const outStart = fullDur - outDur;
+
+        // position: bezier from start → midpoint → exit
+        // use quadratic interp: start→mid in first half, mid→exit in second half
+        let px, py;
+        const halfLife = u.totalLife / 2;
+        if (u.age < halfLife) {
+          const t2 = u.age / halfLife;
+          px = u.sx + (u.mx - u.sx) * t2;
+          py = u.sy + (u.my - u.sy) * t2;
+        } else {
+          const t2 = (u.age - halfLife) / halfLife;
+          px = u.mx + (u.ex - u.mx) * t2;
+          py = u.my + (u.ey - u.my) * t2;
+        }
+
+        // scale & alpha based on lifecycle
+        let scale, alpha;
+        if (u.age < inDur) {
+          const t2 = u.age / inDur;
+          scale = easeOutBack(t2);
+          alpha = Math.min(t2 * 2, 1);
+        } else if (u.age > outStart) {
+          const t2 = (u.age - outStart) / outDur;
+          scale = 1 - easeInBack(Math.min(t2, 1)) * .85;
+          alpha = 1 - t2;
+        } else {
+          scale = 1; alpha = 1;
+        }
+
+        drawUFO(px, py, scale, Math.max(0, alpha), u.hue, elapsed, u.wobOff, u.wobSpd, u.wobAmp);
+      }
+
+      // prune dead
+      for (let i = ufos.length - 1; i >= 0; i--) if (ufos[i].done) ufos.splice(i, 1);
+
+      // auto-stop when sequence is done
+      if (!stopped && elapsed >= SEQUENCE_END && ufos.length === 0) {
+        stopped = true;
+        if (!completedNotified) {
+          completedNotified = true;
+          notifyHost({ type: 'si:media-event', event: 'completed' });
+        }
+        // canvas stays clear — animation simply ends
+      }
+
+      raf = requestAnimationFrame(tick);
+    }
+
+    /* ── Public API ── */
+    window.triviaProcess = {
+      pause() { if (!stopped) { paused = true; } },
+      resume() { paused = false; lastTs = null; },
+      reset() {
+        cancelAnimationFrame(raf);
+        init();
+        raf = requestAnimationFrame(tick);
+      }
+    };
+
+    window.addEventListener('message', (event) => {
+      const data = event.data;
+
+      if (!data || data.type !== 'si:media-control') {
+        return;
+      }
+
+      if (data.action === 'pause') {
+        window.triviaProcess.pause();
+      } else if (data.action === 'play') {
+        window.triviaProcess.resume();
+      }
+    });
+
+    init();
+    raf = requestAnimationFrame(tick);
+
+
+  </script>
+</body>
+
+</html>
